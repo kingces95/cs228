@@ -34,8 +34,10 @@ autograder.
 Note that the `main` function describes and instantiates global variables 
 `disc_z1, disc_z2, bayes_net`, which you may use. 
 """
+from cmath import exp
 import sys
 import pickle as pkl
+import threading
 
 import numpy as np
 
@@ -44,6 +46,7 @@ import matplotlib.pyplot as plt
 from scipy.io import loadmat
 
 try:
+    # https://github.com/scipy/scipy/blob/v0.14.0/scipy/misc/common.py
     from scipy.special import logsumexp
 except ImportError:
     from scipy.misc import logsumexp
@@ -78,7 +81,6 @@ def get_p_z1(z1_val: float) -> float:
 
     return bayes_net["prior_z1"][z1_val]
 
-
 def get_p_z2(z2_val: float) -> float:
     """
     Helper. Computes the prior probability for variable z2 to take value z2_val.
@@ -86,7 +88,6 @@ def get_p_z2(z2_val: float) -> float:
     """
 
     return bayes_net["prior_z2"][z2_val]
-
 
 def get_pixels_sampled_from_p_x_joint_z1_z2() -> np.ndarray:
     """
@@ -161,7 +162,6 @@ def get_p_cond_z1_z2(z1_val: float, z2_val: float) -> np.ndarray:
 
     return sample
 
-
 def get_log_marginal_likelihood(data: np.ndarray) -> np.ndarray:
     """
     Called by q6()
@@ -183,23 +183,84 @@ def get_log_marginal_likelihood(data: np.ndarray) -> np.ndarray:
     """
     pass
 
+def p_x0_gz0():
+    z1_i = 0
+    sum_p = 0
+    sum_p_x = 0
+    for z2_i in range(n_disc_z):
+        sum_p += z1_distribution[z1_i] * z2_distribution[z2_i] * cond_likelihood[disc_z1[z1_i], disc_z2[z2_i]][0][0]
+        sum_p += z1_distribution[z1_i] * z2_distribution[z2_i] * (1 - cond_likelihood[disc_z1[z1_i], disc_z2[z2_i]][0][0])
+        sum_p_x += z1_distribution[z1_i] * z2_distribution[z2_i] * cond_likelihood[disc_z1[z1_i], disc_z2[z2_i]][0][0]
+
+    return sum_p_x / sum_p
+
+def p_X_gz0():
+    z1_i = 0
+    sum_p = np.zeros(x_cardinality)
+    sum_p_x = np.zeros(x_cardinality)
+
+    for z2_i in range(n_disc_z):
+        sum_p += z1_distribution[z1_i] * z2_distribution[z2_i] * cond_likelihood[disc_z1[z1_i], disc_z2[z2_i]][0]
+        sum_p += z1_distribution[z1_i] * z2_distribution[z2_i] * (1 - cond_likelihood[disc_z1[z1_i], disc_z2[z2_i]][0])
+        sum_p_x += z1_distribution[z1_i] * z2_distribution[z2_i] * cond_likelihood[disc_z1[z1_i], disc_z2[z2_i]][0]
+
+    return sum_p_x / sum_p
+
+def p_X_gZ1() -> np.ndarray:
+
+    cond_likelihood_z1 = np.zeros((n_disc_z, x_cardinality))
+    for z1_i in range(n_disc_z):
+
+        sum_p = np.zeros(x_cardinality)
+        sum_p_x = np.zeros(x_cardinality)
+        for z2_i in range(n_disc_z):
+            sum_p += z1_distribution[z1_i] * z2_distribution[z2_i] * cond_likelihood[disc_z1[z1_i], disc_z2[z2_i]][0]
+            sum_p += z1_distribution[z1_i] * z2_distribution[z2_i] * (1 - cond_likelihood[disc_z1[z1_i], disc_z2[z2_i]][0])
+            sum_p_x += z1_distribution[z1_i] * z2_distribution[z2_i] * cond_likelihood[disc_z1[z1_i], disc_z2[z2_i]][0]
+
+        cond_likelihood_z1[z1_i]=sum_p_x / sum_p
+
+    return cond_likelihood_z1
+
+def p_X_gZ2() -> np.ndarray:
+
+    cond_likelihood_z2 = np.zeros((n_disc_z, x_cardinality))
+    for z2_i in range(n_disc_z):
+
+        sum_p = np.zeros(x_cardinality)
+        sum_p_x = np.zeros(x_cardinality)
+        for z1_i in range(n_disc_z):
+            sum_p += z1_distribution[z1_i] * z2_distribution[z2_i] * cond_likelihood[disc_z1[z1_i], disc_z2[z2_i]][0]
+            sum_p += z1_distribution[z1_i] * z2_distribution[z2_i] * (1 - cond_likelihood[disc_z1[z1_i], disc_z2[z2_i]][0])
+            sum_p_x += z1_distribution[z1_i] * z2_distribution[z2_i] * cond_likelihood[disc_z1[z1_i], disc_z2[z2_i]][0]
+
+        cond_likelihood_z2[z2_i]=sum_p_x / sum_p
+
+    return cond_likelihood_z2
 
 def get_conditional_expectation(data: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     global n_disc_z, x_cardinality
-
-    n = len(data)
     x_cardinality = 784
     n_disc_z = 25
 
+    global cond_likelihood
     cond_likelihood = bayes_net['cond_likelihood']
 
+    global z1_distribution
     z1_distribution = np.zeros(n_disc_z)
     for i in range(n_disc_z):
         z1_distribution[i] = bayes_net['prior_z1'][disc_z1[i]]
 
+    global z2_distribution
     z2_distribution = np.zeros(n_disc_z)
     for i in range(n_disc_z):
         z2_distribution[i]= bayes_net['prior_z2'][disc_z2[i]]
+
+    return get_conditional_expectation_body(data)
+
+def get_conditional_expectation_body(data: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+
+    n = len(data)
 
     cond_likelihood_z1 = np.zeros((n_disc_z, x_cardinality))
     for z1_i in range(n_disc_z):
@@ -210,14 +271,34 @@ def get_conditional_expectation(data: np.ndarray) -> Tuple[np.ndarray, np.ndarra
     cond_likelihood_z2 = np.zeros((n_disc_z, x_cardinality))
     for z2_i in range(n_disc_z):
         for z1_i in range(n_disc_z):
+            before = cond_likelihood_z2[z2_i][0]
             cond_likelihood_z2[z2_i] += \
                 z1_distribution[z1_i] * cond_likelihood[disc_z1[z1_i], disc_z2[z2_i]][0]
+
+    # should match P(Z1|x_1)
+    # print(cond_likelihood_z1[0][0])
+    # print(p_x0_gz0())
+    # print(cond_likelihood_z1[0][0] - p_x0_gz0())
+
+    # print(cond_likelihood_z1[0] - p_X_gz0())
+
+    # print(p_x0_gz0())
+    # print(p_X_gz0()[0])
+    # print(p_X_gZ1()[0][0])
+
+    cond_likelihood_z1=p_X_gZ1()
+    cond_likelihood_z2=p_X_gZ2()
 
     cond_e_z_1=np.zeros(n)
     cond_e_z_2=np.zeros(n)
 
+    # global ak
+    # ak=1.2
+
     for i in range(n):
-    #for i in range(1):
+        # if labels[i] != 8:
+        #     continue
+
         image=data[i]
         pz1_px_z1=np.zeros(n_disc_z)
         pz2_px_z2=np.zeros(n_disc_z)
@@ -226,7 +307,9 @@ def get_conditional_expectation(data: np.ndarray) -> Tuple[np.ndarray, np.ndarra
             pz2 = z2_distribution[zi]
        
             pz1_px_z1[zi]=pz1 * np.prod(pixel_to_p(cond_likelihood_z1[zi], image))
-            pz2_px_z2[zi]=pz2 * np.prod(pixel_to_p(cond_likelihood_z2[zi], image))          
+            pz2_px_z2[zi]=pz2 * np.prod(pixel_to_p(cond_likelihood_z2[zi], image))
+
+        # print(np.min(pz1_px_z1), np.max(pz1_px_z1))
 
         pz1_px_z1_sum=np.sum(pz1_px_z1)
         pz2_px_z2_sum=np.sum(pz2_px_z2)
@@ -234,10 +317,13 @@ def get_conditional_expectation(data: np.ndarray) -> Tuple[np.ndarray, np.ndarra
         cond_e_z_1[i]=np.sum(disc_z1 * (pz1_px_z1 / pz1_px_z1_sum))
         cond_e_z_2[i]=np.sum(disc_z2 * (pz2_px_z2 / pz2_px_z2_sum))
 
+    # print(bayes_net['prior_z1'])
+    # print(len(bayes_net['prior_z1']))
+
     return cond_e_z_1, cond_e_z_2
 
 def pixel_to_p(p_of_pixel, image):
-    return image * p_of_pixel + (1 - image) * (1 - p_of_pixel)
+    return (image) * (p_of_pixel) + (1 - image) * (1 - p_of_pixel)
 
 # def pz_px_z(image, p_z, cond_likelihood_z, image: np.ndarray):
 #     image = cond_likelihood_z    
@@ -295,6 +381,60 @@ def q5():
 
     return
 
+def get_log_marginal_likelihood(data):
+
+    # joint for all z1/z2
+    # log_all_Z1_Z2_x = np.zeros(n_disc_z * n_disc_z)
+    log_all_Z1_Z2_x = np.zeros((data.shape[0], n_disc_z * n_disc_z))
+
+    i = 0
+    for z1_i in range(n_disc_z):
+        for z2_i in range(n_disc_z):
+            p_pixel = pixel_to_p(cond_likelihood[disc_z1[z1_i], disc_z2[z2_i]][0], data)
+            # assert min(p_pixel) >= 0 and max(p_pixel) <= 1
+            # print(np.max(p_pixel))
+            
+            p_z1=z1_distribution[z1_i]
+            assert p_z1 > 0 and p_z1 < 1
+
+            p_z2=z2_distribution[z2_i]
+            assert p_z2 > 0 and p_z2 < 1
+
+            # joint for one z1/z2
+            log_all_Z1_Z2_x[:,i] = np.log(p_z1) + np.log(p_z2) + np.sum(np.log(p_pixel))
+            i = i + 1
+
+    assert i == n_disc_z * n_disc_z
+
+    # a_max = np.max(log_all_Z1_Z2_x)
+    # assert a_max < -30, \
+    #     "a_max < -30, %d" % a_max
+
+    # log_all_Z1_Z2_x_trick = log_all_Z1_Z2_x - a_max
+    # assert max(log_all_Z1_Z2_x_trick) <= 0, \
+    #     "max(log_all_Z1_Z2_x_trick) < 0, %f" % log_all_Z1_Z2_x_trick
+
+    # expsum = np.sum(np.exp(log_all_Z1_Z2_x_trick))
+    # assert expsum >= 1 and expsum < 4, \
+    #     "expsum > 1 and expsum < 4, %f, a_max=%f" % (expsum, a_max)
+
+    # log_prob_x = a_max + np.log(expsum)
+    # assert a_max < -30, \
+    #     "log_prob_x < -25, %d" % log_prob_x
+
+    # print(np.max(log_all_Z1_Z2_x))
+    log_prob_x = logsumexp(log_all_Z1_Z2_x,axis=1)
+
+    # a_min = np.min(log_all_Z1_Z2_x)
+    # if (log_prob_x > -75 and log_prob_x < -25):
+    #     print('---')
+    #     print('a_max',a_max, 'a_min',a_min, 'sum', expsum,'expsum', \
+    #         'average', np.average(log_all_Z1_Z2_x), 'log_prob_x',log_prob_x)
+    # else:
+    #     print('a_max',a_max, 'a_min',a_min, 'sum', expsum,'expsum', \
+    #         'average', np.average(log_all_Z1_Z2_x), 'log_prob_x',log_prob_x)
+
+    return log_prob_x 
 
 def q6():
     """
@@ -314,6 +454,62 @@ def q6():
     """
 
     # Your code here
+    global n_disc_z, x_cardinality
+    x_cardinality = 784
+    n_disc_z = 25
+
+    global cond_likelihood
+    cond_likelihood = bayes_net['cond_likelihood']
+
+    global z1_distribution
+    z1_distribution = np.zeros(n_disc_z)
+    for i in range(n_disc_z):
+        z1_distribution[i] = bayes_net['prior_z1'][disc_z1[i]]
+
+    global z2_distribution
+    z2_distribution = np.zeros(n_disc_z)
+    for i in range(n_disc_z):
+        z2_distribution[i]= bayes_net['prior_z2'][disc_z2[i]]
+
+    # print(len(val_data), len(test_data))
+
+    real_n = len(val_data)
+    real_n = 1000
+    # print(real_n)
+
+    progress = 100
+
+    # val_marginal_log_likelihood=np.zeros(real_n)
+    # for i in range(real_n):
+    #     if i % progress == 0:
+    #         print('val',i,'/',real_n)
+    val_marginal_log_likelihood=get_log_marginal_likelihood(val_data)
+    # print(val_marginal_log_likelihood)
+
+    average = np.average(val_marginal_log_likelihood)
+    std = np.std(val_marginal_log_likelihood)
+    std3 = std * 3
+    lower_bound = average - std3
+    upper_bound = average + std3
+    # print('average', average, 'std', std, 'std3', std3, 'low', lower_bound, 'high', upper_bound)
+
+    test_n = len(test_data)
+    test_n = 1000
+    # print(test_n)
+
+    # test_marginal_log_likelihood=np.zeros(test_n)
+    # for i in range(test_n):
+    #     if i % progress == 0:
+    #         print('test',i,'/',test_n)
+    test_marginal_log_likelihood=get_log_marginal_likelihood(test_data)
+
+    tmll=test_marginal_log_likelihood
+    corrupt_marginal_log_likelihood = tmll[(tmll < lower_bound) | (tmll > upper_bound)]    
+    real_marginal_log_likelihood    = tmll[(tmll >= lower_bound) & (tmll <= upper_bound)]
+
+    # print(len(real_marginal_log_likelihood))
+    # print(len(corrupt_marginal_log_likelihood))
+    # print(corrupt_marginal_log_likelihood)
 
     # DO NOT MODIFY
     # ----------
@@ -334,7 +530,6 @@ def q6():
 
     return
 
-
 def q7():
     """
     Loads the data and plots a color coded clustering of the conditional expectations.
@@ -350,7 +545,6 @@ def q7():
     # DO NOT MODIFY
     # ----------
     mean_z1, mean_z2 = get_conditional_expectation(data)
-    # print(labels)
     # return
 
     plt.figure()
@@ -365,7 +559,6 @@ def q7():
     # ----------
 
     return
-
 
 def load_model(model_file):
     """
@@ -432,10 +625,10 @@ def main():
     # q5()
 
     # Your code should save two figures starting with a6
-    # q6()
+    q6()
 
     # Your code should save a figure named a7
-    q7()
+    # q7()
 
     # print(np.random.uniform(0, 1, size=784))
 
