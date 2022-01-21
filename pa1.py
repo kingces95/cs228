@@ -382,16 +382,27 @@ def q5():
     return
 
 def get_log_marginal_likelihood(data):
+    progress = 100
+
+    n = len(data) 
+    marginal_log_likelihood=np.zeros(n)
+    for i in range(n):
+        if i % progress == 0:
+            print('val',i,'/',n)
+        marginal_log_likelihood[i]=get_log_marginal_likelihood_datum(data[i])
+
+    return marginal_log_likelihood
+
+def get_log_marginal_likelihood_datum(datum):
 
     # joint for all z1/z2
-    # log_all_Z1_Z2_x = np.zeros(n_disc_z * n_disc_z)
-    log_all_Z1_Z2_x = np.zeros((data.shape[0], n_disc_z * n_disc_z))
+    log_all_Z1_Z2_x = np.zeros(n_disc_z * n_disc_z)
 
     i = 0
     for z1_i in range(n_disc_z):
         for z2_i in range(n_disc_z):
-            p_pixel = pixel_to_p(cond_likelihood[disc_z1[z1_i], disc_z2[z2_i]][0], data)
-            # assert min(p_pixel) >= 0 and max(p_pixel) <= 1
+            p_pixel = pixel_to_p(cond_likelihood[disc_z1[z1_i], disc_z2[z2_i]][0], datum)
+            # assert  min(p_pixel) >= 0 and max(p_pixel) <= 1
             # print(np.max(p_pixel))
             
             p_z1=z1_distribution[z1_i]
@@ -401,29 +412,30 @@ def get_log_marginal_likelihood(data):
             assert p_z2 > 0 and p_z2 < 1
 
             # joint for one z1/z2
-            log_all_Z1_Z2_x[:,i] = np.log(p_z1) + np.log(p_z2) + np.sum(np.log(p_pixel))
+            log_all_Z1_Z2_x[i] = np.log(p_z1) + np.log(p_z2) + np.sum(np.log(p_pixel))
             i = i + 1
 
     assert i == n_disc_z * n_disc_z
 
-    # a_max = np.max(log_all_Z1_Z2_x)
+    a_max = np.max(log_all_Z1_Z2_x)
     # assert a_max < -30, \
     #     "a_max < -30, %d" % a_max
 
-    # log_all_Z1_Z2_x_trick = log_all_Z1_Z2_x - a_max
+    log_all_Z1_Z2_x_trick = log_all_Z1_Z2_x - a_max
     # assert max(log_all_Z1_Z2_x_trick) <= 0, \
     #     "max(log_all_Z1_Z2_x_trick) < 0, %f" % log_all_Z1_Z2_x_trick
 
-    # expsum = np.sum(np.exp(log_all_Z1_Z2_x_trick))
+    expsum = np.sum(np.exp(log_all_Z1_Z2_x_trick))
     # assert expsum >= 1 and expsum < 4, \
     #     "expsum > 1 and expsum < 4, %f, a_max=%f" % (expsum, a_max)
 
-    # log_prob_x = a_max + np.log(expsum)
+    log_prob_x = a_max + np.log(expsum)
     # assert a_max < -30, \
     #     "log_prob_x < -25, %d" % log_prob_x
 
     # print(np.max(log_all_Z1_Z2_x))
-    log_prob_x = logsumexp(log_all_Z1_Z2_x,axis=1)
+    # assert log_prob_x == logsumexp(log_all_Z1_Z2_x), \
+    #     "log_prob_x == logsumexp(log_all_Z1_Z2_x)"
 
     # a_min = np.min(log_all_Z1_Z2_x)
     # if (log_prob_x > -75 and log_prob_x < -25):
@@ -477,12 +489,6 @@ def q6():
     real_n = 1000
     # print(real_n)
 
-    progress = 100
-
-    # val_marginal_log_likelihood=np.zeros(real_n)
-    # for i in range(real_n):
-    #     if i % progress == 0:
-    #         print('val',i,'/',real_n)
     val_marginal_log_likelihood=get_log_marginal_likelihood(val_data)
     # print(val_marginal_log_likelihood)
 
@@ -497,10 +503,6 @@ def q6():
     test_n = 1000
     # print(test_n)
 
-    # test_marginal_log_likelihood=np.zeros(test_n)
-    # for i in range(test_n):
-    #     if i % progress == 0:
-    #         print('test',i,'/',test_n)
     test_marginal_log_likelihood=get_log_marginal_likelihood(test_data)
 
     tmll=test_marginal_log_likelihood
