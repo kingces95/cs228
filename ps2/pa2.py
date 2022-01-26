@@ -165,7 +165,7 @@ class TANBCPT(object):
     This class won't be graded in the autograder.
     '''
 
-    def __init__(self, A_i, A_p):
+    def __init__(self, classifier, x: np.ndarray):
         '''
         TODO: create any persistent instance variables you need that hold the
         state of the learned parameters for this CPT
@@ -226,6 +226,12 @@ class TANBClassifier(NBClassifier):
             the class labels of the rows in A
 
         '''
+        mst=get_mst(A_train, C_train)
+        root=get_tree_root(A_train, C_train)
+        edges=get_tree_edges(mst, root)
+
+        code.interact(local=locals())
+
         raise NotImplementedError()
 
     def _train(self, A_train, C_train):
@@ -375,7 +381,7 @@ def main():
     print('  10-fold cross validation total test accuracy {:2.4f} on {} examples'.format(
         accuracy, num_examples))
 
-    # # Part (b)
+    # Part (b)
     # print('TANB Classifier')
     # accuracy, num_examples = evaluate(TANBClassifier, train_subset=False)
     # print('  10-fold cross validation total test accuracy {:2.4f} on {} examples'.format(
