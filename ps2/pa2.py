@@ -3,6 +3,7 @@ import sys
 import numpy as np
 from collections import Counter
 import random
+import code
 
 try:
     from scipy.misc import logsumexp
@@ -33,47 +34,59 @@ class NBCPT(object):
     This class won't be graded in the autograder.
     '''
 
-    def __init__(self, A_i):
+    # A_i: the bill identifier
+    def __init__(self, x: np.ndarray):
         '''
         TODO: create any persistent instance variables you need that hold the
         state of the learned parameters for this CPT
 
         Params:
-          - A_i: the index of the child variable
-
+          - x: records of members votes on a single bill
+                n x 2 matrix where rows = n members, columns = records (C, A_n)
         '''
-        pass
 
-    def learn(self, A, C):
+        # count rows whose first column is 0; count the republicans
+        republicans=x[x[:,0] == 0].shape[0]
+
+        # count rows whose first column is 0 and second column 1
+        # count the republicans who voted for the bill
+        republican_votes=x[(x[:,0] == 0) & (x[:,1] == 1)].shape[0]
+
+        self.aye_given_republican = (republican_votes + alpha)/(republicans + alpha * 2)
+
+
+        # count rows whose first column is 1; count the republicans
+        democrats=x[x[:,0] == 1].shape[0]
+
+        # count rows whose first column is 1 and second column 1
+        # count the democrats who voted for the bill
+        democrat_votes=x[(x[:,0] == 1) & (x[:,1] == 1)].shape[0]
+
+        self.aye_given_democrat = (democrat_votes + alpha)/(democrats + alpha * 2)
+
+    def get_cond_prob(self, vote, party):
         '''
-        TODO: populate any instance variables specified in __init__ we need
-        to learn the parameters for this CPT
+        TODO: return the conditional probability vote given the party
 
         Params:
-         - A: a (n,k) numpy array where each row is a sample of assignments
-         - C: a (n,) numpy array where the elements correspond to the
-           class labels of the rows in A
-        Return:
-         - None
-
-        '''
-        pass
-
-    def get_cond_prob(self, entry, c):
-        '''
-        TODO: return the conditional probability P(A_i=a_i| C=c) for the value
-        a_i and class label c specified in the example entry
-
-        Params:
-         - entry: full assignment of variables
-            e.g. entry = np.array([0,1,1,...]) means variable A_0 = 0, A_1 = 1, A_2 = 1, etc.
-         - c: the class
+         - vote: 0 is nay, 1 is aye
+         - party: 0 is republican, 1 is democrat
         Returns:
-         - p: a scalar, the conditional probability P(A_i=a_i | C=c)
-
+         - p: a scalar, the conditional probability P(vote|party)
         '''
-        pass
 
+        is_republican = party == 0
+
+        if (vote == 1):
+            if (is_republican):
+                return self.aye_given_republican
+            else:
+                return self.aye_given_democrat
+        else:
+            if (is_republican):
+                return 1 - self.aye_given_republican
+            else:
+                return 1 - self.aye_given_democrat
 
 class NBClassifier(object):
     '''
@@ -85,24 +98,34 @@ class NBClassifier(object):
         TODO: create any persistent instance variables you need that hold the
         state of the trained classifier and populate them with a call to self._train
         Suggestions for the attributes in the classifier:
-            - self.P_c: a dictionary for the probabilities for the class variable C
-            - self.cpts: a list of NBCPT objects
+            - self.logP_republican: log-probability a congressperson is a republican
+            - self.logP_democrat: log-probability a congressperson is a democrat
+            - self.conditional_probability_table: conditional probability tables
         '''
-        raise NotImplementedError()
+        self.logP_republican = np.log(
+            # count of rows whose first column is 0
+            C_train[C_train == 0].size / C_train.size
+        )
 
-    def _train(self, A_train, C_train):
-        '''
-        TODO: train your NB classifier with the specified data and class labels
-        hint: learn the parameters for the required CPTs
-        Params:
-          - A_train: a (n,k) numpy array where each row is a sample of assignments
-          - C_train: a (n,)  numpy array where the elements correspond to
-            the class labels of the rows in A
-        Returns:
-         - None
+        self.logP_democrat = np.log(
+            # count of rows whose first column is 1
+            C_train[C_train == 1].size / C_train.size
+        )
 
-        '''
-        raise NotImplementedError()
+        assert np.exp(self.logP_democrat) + np.exp(self.logP_republican) == 1.
+
+        self.conditional_probability_table=[]
+
+        bill_count=A_train.shape[1]
+        for bill_id in range(bill_count):            
+            self.conditional_probability_table.append(
+                NBCPT(
+                    # rows and rows of (party, vote on bill i)
+                    np.array((C_train, A_train[:,bill_id])).T
+                )
+            )
+
+        # code.interact(local=locals())
 
     def classify(self, entry):
         '''
@@ -115,12 +138,18 @@ class NBClassifier(object):
         Returns:
          - c_pred: the predicted label, one of {0, 1}
          - logP_c_pred: the log of the conditional probability of the label |c_pred|
-
-
         '''
-        raise NotImplementedError()
-        # return (c_pred, logP_c_pred)
 
+        logP_republican=self.logP_republican
+        logP_democrat=self.logP_democrat
+        for i in range(entry.size):
+            logP_republican += np.log(self.conditional_probability_table[i].get_cond_prob(entry[i], 0))
+            logP_democrat += np.log(self.conditional_probability_table[i].get_cond_prob(entry[i], 1))
+
+        if (logP_republican > logP_democrat):
+            return (0, logP_republican)
+        else:
+            return (1, logP_democrat)
 
 # --------------------------------------------------------------------------
 # TANB CPT and classifier
@@ -346,29 +375,29 @@ def main():
     print('  10-fold cross validation total test accuracy {:2.4f} on {} examples'.format(
         accuracy, num_examples))
 
-    # Part (b)
-    print('TANB Classifier')
-    accuracy, num_examples = evaluate(TANBClassifier, train_subset=False)
-    print('  10-fold cross validation total test accuracy {:2.4f} on {} examples'.format(
-        accuracy, num_examples))
+    # # Part (b)
+    # print('TANB Classifier')
+    # accuracy, num_examples = evaluate(TANBClassifier, train_subset=False)
+    # print('  10-fold cross validation total test accuracy {:2.4f} on {} examples'.format(
+    #     accuracy, num_examples))
 
-    # Part (c)
-    print('Naive Bayes Classifier on missing data')
-    evaluate_incomplete_entry(NBClassifier)
+    # # Part (c)
+    # print('Naive Bayes Classifier on missing data')
+    # evaluate_incomplete_entry(NBClassifier)
 
-    print('TANB Classifier on missing data')
-    evaluate_incomplete_entry(TANBClassifier)
+    # print('TANB Classifier on missing data')
+    # evaluate_incomplete_entry(TANBClassifier)
 
-    # Part (d)
-    print('Naive Bayes')
-    accuracy, num_examples = evaluate(NBClassifier, train_subset=True)
-    print('  10-fold cross validation total test accuracy {:2.4f} on {} examples'.format(
-        accuracy, num_examples))
+    # # Part (d)
+    # print('Naive Bayes')
+    # accuracy, num_examples = evaluate(NBClassifier, train_subset=True)
+    # print('  10-fold cross validation total test accuracy {:2.4f} on {} examples'.format(
+    #     accuracy, num_examples))
 
-    print('TANB Classifier')
-    accuracy, num_examples = evaluate(TANBClassifier, train_subset=True)
-    print('  10-fold cross validation total test accuracy {:2.4f} on {} examples'.format(
-        accuracy, num_examples))
+    # print('TANB Classifier')
+    # accuracy, num_examples = evaluate(TANBClassifier, train_subset=True)
+    # print('  10-fold cross validation total test accuracy {:2.4f} on {} examples'.format(
+    #     accuracy, num_examples))
 
 
 if __name__ == '__main__':
