@@ -140,16 +140,25 @@ class NBClassifier(object):
          - logP_c_pred: the log of the conditional probability of the label |c_pred|
         '''
 
-        logP_republican=self.logP_republican
-        logP_democrat=self.logP_democrat
+        logP_republican_joint=self.logP_republican
+        logP_democrat_joint=self.logP_democrat
         for i in range(entry.size):
-            logP_republican += np.log(self.conditional_probability_table[i].get_cond_prob(entry[i], 0))
-            logP_democrat += np.log(self.conditional_probability_table[i].get_cond_prob(entry[i], 1))
+            logP_republican_joint += np.log(self.conditional_probability_table[i].get_cond_prob(entry[i], 0))
+            logP_democrat_joint += np.log(self.conditional_probability_table[i].get_cond_prob(entry[i], 1))
 
-        if (logP_republican > logP_democrat):
-            return (0, logP_republican)
+        # "normalize"; probability republican and votes -> republican given votes
+        logP_votes=np.log(np.exp(logP_republican_joint) + np.exp(logP_democrat_joint))
+        logP_republican_given_votes = logP_republican_joint - logP_votes
+        logP_democrat_given_votes = logP_democrat_joint - logP_votes
+
+        # assert np.exp(logP_republican_given_votes) + np.exp(logP_democrat_given_votes) == 1, \
+        #     "%r + %r == %r" % (np.exp(logP_republican_given_votes), np.exp(logP_democrat_given_votes),
+        #         np.exp(logP_republican_given_votes) + np.exp(logP_democrat_given_votes))
+
+        if (logP_republican_given_votes > logP_democrat_given_votes):
+            return (0, logP_republican_given_votes)
         else:
-            return (1, logP_democrat)
+            return (1, logP_democrat_given_votes)
 
 # --------------------------------------------------------------------------
 # TANB CPT and classifier
@@ -227,10 +236,10 @@ class TANBClassifier(NBClassifier):
 
         '''
         mst=get_mst(A_train, C_train)
-        root=get_tree_root(A_train, C_train)
+        root=get_tree_root(mst)
         edges=get_tree_edges(mst, root)
 
-        code.interact(local=locals())
+        # code.interact(local=locals())
 
         raise NotImplementedError()
 
