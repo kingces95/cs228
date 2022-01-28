@@ -307,7 +307,11 @@ class TANBClassifier(object):
 
             logP_entry_joint += np.log(self.conditional_probability_table[i].get_cond_prob(entry[i], c, parent))
 
-        return logP_entry_joint
+        if c == 0:
+            return self.logP_republican + logP_entry_joint
+        else:
+            return self.logP_democrat + logP_entry_joint
+
 
     def classify(self, entry):
         '''
@@ -327,8 +331,8 @@ class TANBClassifier(object):
 
         '''
 
-        logP_republican_joint=self.logP_republican + self.log_p_entry(entry, 0)
-        logP_democrat_joint=self.logP_democrat + self.log_p_entry(entry, 1)
+        logP_republican_joint=self.log_p_entry(entry, 0)
+        logP_democrat_joint=self.log_p_entry(entry, 1)
         
         # "normalize"; probability republican and votes -> republican given votes
         logP_votes=np.log(np.exp(logP_republican_joint) + np.exp(logP_democrat_joint))
@@ -435,7 +439,18 @@ def evaluate_incomplete_entry(classifier_cls):
     print('  P(C={}|A_observed) = {:2.4f}'.format(c_pred, P_c_pred))
 
     # TODO: write code to compute this!
-    PA_12_eq_1 = None
+    logP_republican=classifier.log_p_entry(entry, 0)
+    logP_democrat=classifier.log_p_entry(entry, 1)
+
+    entry[11]=1
+    logP_republican_aye=classifier.log_p_entry(entry, 0)
+    logP_democrat_aye=classifier.log_p_entry(entry, 1)
+    
+    logPA_12_eq_1 = np.log(np.exp(logP_republican_aye) + np.exp(logP_democrat_aye)) - \
+        np.log(np.exp(logP_republican) + np.exp(logP_democrat))
+
+    PA_12_eq_1=np.exp(logPA_12_eq_1)
+    print('  P(A_12 = 1|A_observed) = {:2.4f}'.format(PA_12_eq_1))
 
     return P_c_pred, PA_12_eq_1
 
