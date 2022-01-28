@@ -174,52 +174,29 @@ class TANBCPT(object):
     This class won't be graded in the autograder.
     '''
 
-    def __init__(self, classifier, x: np.ndarray):
+    def __init__(self, nbcpt_0: NBCPT, nbcpt_1: NBCPT):
         '''
         TODO: create any persistent instance variables you need that hold the
         state of the learned parameters for this CPT
 
         Params:
-         - A_i: the index of the child variable
-         - A_p: the index of its parent variable (in the Chow-Liu algorithm,
-           the learned structure will have up to a single parent for each child)
+         - nbcpt_0: naive bays CPT generated with data filtered by parent = 0
+         - nbcpt_1: naive bays CPT generated with data filtered by parent = 1
+         if there is no parent then nbcpt_0 = nbcpt_1
 
         '''
-        pass
+        self.nbcpt_0 = nbcpt_0
+        self.nbcpt_1 = nbcpt_1
 
-    def learn(self, A, C):
+    def get_cond_prob(self, vote, party, parent):
         '''
-        TODO: populate any instance variables specified in __init__ we need to learn
-        the parameters for this CPT
-
-        Params:
-         - A: a (n,k) numpy array where each row is a sample of assignments
-         - C: a (n,)  numpy array where the elements correspond to the class
-           labels of the rows in A
-        Returns:
-         - None
-
-        '''
-        pass
-
-    def get_cond_prob(self, entry, c):
-        '''
-        TODO: return the conditional probability P(A_i | Pa(A_i)) for the values
+        TODO: return the conditional probability P(vote | party, parent) for the values
         specified in the example entry and class label c
-        Note: in the expression above, the class C is also a parent of A_i!
-
-        Params;
-            - entry: full assignment of variables
-              e.g. entry = np.array([0,1,1,...]) means variable A_0 = 0, A_1 = 1, A_2 = 1, etc.
-            - c: the class
-        Returns:
-         - p: a scalar, the conditional probability P(A_i | Pa(A_i))
-
         '''
-        pass
+        nbcpt = self.nbcpt_0 if parent == 0 else self.nbcpt_1
+        return nbcpt.get_cond_prob(vote, party)
 
-
-class TANBClassifier(NBClassifier):
+class TANBClassifier(object):
     '''
     TANB classifier class specification
     '''
@@ -235,13 +212,57 @@ class TANBClassifier(NBClassifier):
             the class labels of the rows in A
 
         '''
+        self.logP_republican = np.log(
+            # count of rows whose first column is 0
+            C_train[C_train == 0].size / C_train.size
+        )
+
+        self.logP_democrat = np.log(
+            # count of rows whose first column is 1
+            C_train[C_train == 1].size / C_train.size
+        )
+
         mst=get_mst(A_train, C_train)
         root=get_tree_root(mst)
-        edges=get_tree_edges(mst, root)
 
-        # code.interact(local=locals())
+        # get_tree_edges returns a list of pairs (parent_id, child_id)
+        parent_child=np.array(list(get_tree_edges(mst, root)))
 
-        raise NotImplementedError()
+        # map child to parent
+        child_parent=[(y, x) for x, y in parent_child]
+        self.parent_of_child=dict(child_parent)
+
+        self.conditional_probability_table=[]
+
+        bill_count=A_train.shape[1]
+        for bill_id in range(bill_count):
+            cpt_0 = None
+            cpt_1 = None
+
+            if bill_id in self.parent_of_child:
+                parent_id=self.parent_of_child[bill_id]
+
+                # rows and rows of (party, vote on bill i, parent of bill_id)
+                x=np.array((C_train, A_train[:,bill_id], A_train[:,parent_id])).T
+                
+                # code.interact(local=locals())
+
+                cpt_0 = NBCPT(
+                    # rows and rows of (party, vote on bill i) filtered by parent is 0
+                    x[(x[:,2] == 0)]
+                )
+
+                cpt_1 = NBCPT(
+                    # rows and rows of (party, vote on bill i) filtered by parent is 1
+                    x[(x[:,2] == 1)]
+                )
+            else:
+                cpt_0 = cpt_1 = NBCPT(
+                    # rows and rows of (party, vote on bill i)
+                    np.array((C_train, A_train[:,bill_id])).T
+                )
+
+            self.conditional_probability_table.append(TANBCPT(cpt_0, cpt_1))
 
     def _train(self, A_train, C_train):
         '''
@@ -263,6 +284,28 @@ class TANBClassifier(NBClassifier):
         '''
         raise NotImplementedError()
 
+    def log_p_entry(self, entry):
+        
+        if (entry.any(-1)):
+            i = np.where(entry == -1)[0][0]
+
+            y_entry=np.array(entry)
+            y_entry[i]= 1
+
+            n_entry=np.array(entry)
+            n_entry[i]= 0
+
+            return self.log_p_entry(self, y_entry) + self.log_p_entry(self, n_entry)
+
+        logP_entry_joint=0
+        for i in range(entry.size):
+            parent = 0
+            if i in self.parent_of_child:
+                parent_id=self.parent_of_child[i]
+                parent=entry[parent_id]
+
+            logP_entry_joint += np.log(self.conditional_probability_table[i].get_cond_prob(entry[i], 0, parent))
+
     def classify(self, entry):
         '''
         TODO: return the log probabilites for class == 0 and class == 1 as a
@@ -280,8 +323,32 @@ class TANBClassifier(NBClassifier):
         be removed.
 
         '''
-        raise NotImplementedError()
+        # code.interact(local=locals())
 
+        logP_republican_joint=self.logP_republican
+        logP_democrat_joint=self.logP_democrat
+        for i in range(entry.size):
+            parent = 0
+            if i in self.parent_of_child:
+                parent_id=self.parent_of_child[i]
+                parent=entry[parent_id]
+
+            logP_republican_joint += np.log(self.conditional_probability_table[i].get_cond_prob(entry[i], 0, parent))
+            logP_democrat_joint += np.log(self.conditional_probability_table[i].get_cond_prob(entry[i], 1, parent))
+
+        # "normalize"; probability republican and votes -> republican given votes
+        logP_votes=np.log(np.exp(logP_republican_joint) + np.exp(logP_democrat_joint))
+        logP_republican_given_votes = logP_republican_joint - logP_votes
+        logP_democrat_given_votes = logP_democrat_joint - logP_votes
+
+        # assert np.exp(logP_republican_given_votes) + np.exp(logP_democrat_given_votes) == 1, \
+        #     "%r + %r == %r" % (np.exp(logP_republican_given_votes), np.exp(logP_democrat_given_votes),
+        #         np.exp(logP_republican_given_votes) + np.exp(logP_democrat_given_votes))
+
+        if (logP_republican_given_votes > logP_democrat_given_votes):
+            return (0, logP_republican_given_votes)
+        else:
+            return (1, logP_democrat_given_votes)
 
 # =========================================================================
 
@@ -385,10 +452,10 @@ def main():
     '''
 
     # Part (a)
-    print('Naive Bayes')
-    accuracy, num_examples = evaluate(NBClassifier, train_subset=False)
-    print('  10-fold cross validation total test accuracy {:2.4f} on {} examples'.format(
-        accuracy, num_examples))
+    # print('Naive Bayes')
+    # accuracy, num_examples = evaluate(NBClassifier, train_subset=False)
+    # print('  10-fold cross validation total test accuracy {:2.4f} on {} examples'.format(
+    #     accuracy, num_examples))
 
     # Part (b)
     # print('TANB Classifier')
@@ -400,8 +467,8 @@ def main():
     # print('Naive Bayes Classifier on missing data')
     # evaluate_incomplete_entry(NBClassifier)
 
-    # print('TANB Classifier on missing data')
-    # evaluate_incomplete_entry(TANBClassifier)
+    print('TANB Classifier on missing data')
+    evaluate_incomplete_entry(TANBClassifier)
 
     # # Part (d)
     # print('Naive Bayes')
