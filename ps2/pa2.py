@@ -284,9 +284,10 @@ class TANBClassifier(object):
         '''
         raise NotImplementedError()
 
-    def log_p_entry(self, entry):
+    def log_p_entry(self, entry, c):
         
-        if (entry.any(-1)):
+        if (entry[entry == -1].any()):
+            #code.interact(local=locals())
             i = np.where(entry == -1)[0][0]
 
             y_entry=np.array(entry)
@@ -295,7 +296,7 @@ class TANBClassifier(object):
             n_entry=np.array(entry)
             n_entry[i]= 0
 
-            return self.log_p_entry(self, y_entry) + self.log_p_entry(self, n_entry)
+            return np.log(np.exp(self.log_p_entry(y_entry, c)) + np.exp(self.log_p_entry(n_entry, c)))
 
         logP_entry_joint=0
         for i in range(entry.size):
@@ -304,7 +305,9 @@ class TANBClassifier(object):
                 parent_id=self.parent_of_child[i]
                 parent=entry[parent_id]
 
-            logP_entry_joint += np.log(self.conditional_probability_table[i].get_cond_prob(entry[i], 0, parent))
+            logP_entry_joint += np.log(self.conditional_probability_table[i].get_cond_prob(entry[i], c, parent))
+
+        return logP_entry_joint
 
     def classify(self, entry):
         '''
@@ -323,19 +326,10 @@ class TANBClassifier(object):
         be removed.
 
         '''
-        # code.interact(local=locals())
 
-        logP_republican_joint=self.logP_republican
-        logP_democrat_joint=self.logP_democrat
-        for i in range(entry.size):
-            parent = 0
-            if i in self.parent_of_child:
-                parent_id=self.parent_of_child[i]
-                parent=entry[parent_id]
-
-            logP_republican_joint += np.log(self.conditional_probability_table[i].get_cond_prob(entry[i], 0, parent))
-            logP_democrat_joint += np.log(self.conditional_probability_table[i].get_cond_prob(entry[i], 1, parent))
-
+        logP_republican_joint=self.logP_republican + self.log_p_entry(entry, 0)
+        logP_democrat_joint=self.logP_democrat + self.log_p_entry(entry, 1)
+        
         # "normalize"; probability republican and votes -> republican given votes
         logP_votes=np.log(np.exp(logP_republican_joint) + np.exp(logP_democrat_joint))
         logP_republican_given_votes = logP_republican_joint - logP_votes
@@ -458,10 +452,10 @@ def main():
     #     accuracy, num_examples))
 
     # Part (b)
-    # print('TANB Classifier')
-    # accuracy, num_examples = evaluate(TANBClassifier, train_subset=False)
-    # print('  10-fold cross validation total test accuracy {:2.4f} on {} examples'.format(
-    #     accuracy, num_examples))
+    print('TANB Classifier')
+    accuracy, num_examples = evaluate(TANBClassifier, train_subset=False)
+    print('  10-fold cross validation total test accuracy {:2.4f} on {} examples'.format(
+        accuracy, num_examples))
 
     # # Part (c)
     # print('Naive Bayes Classifier on missing data')
