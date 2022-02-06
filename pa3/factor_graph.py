@@ -6,6 +6,8 @@
 
 from factors import *
 import numpy as np
+import code
+import traceback
 
 class FactorGraph:
     def __init__(self, numVar=0, numFactor=0):
@@ -44,6 +46,8 @@ class FactorGraph:
         a = np.array(assignment, copy=False)
         output = 1.0
         for f in self.factors:
+            # if f.name == "6 (parity)":
+            #     code.interact(local=locals())
             output *= f.val.flat[assignment_to_indices([a[f.scope]], f.card)]
         return output[0]
 
@@ -98,12 +102,80 @@ class FactorGraph:
         #######################################################################
         # To do: your code here
 
+        numVar=self.var.__len__()
+        numFactors=self.factors.__len__()
 
-        raise NotImplementedError()
-        #######################################################################
-        pass
+        # initialize variable to factor messages to 50/50
+        for varId in range(numVar):
+            for factorId in self.varToFactor[varId]:
+                self.messagesVarToFactor[(varId, factorId)]=Factor( \
+                    scope=[varId], card=[2], val=np.array([0.5, 0.5]))
 
-    def estimateMarginalProbability(self, var):
+        # code.interact(local=locals())
+
+        for i in range(iterations):
+
+            # print(i)
+            # codeword=[]
+
+            # for each factor, send a message to adjacent variables
+            for factorId in range(numFactors):
+                factor=self.factors[factorId]
+
+                # for each variable adjacent to this factor
+                for recipientVarId in self.factorToVar[factorId]:
+
+                    # multiply factor with all inbound messages
+                    product=factor
+
+                    # for each variable adjacent to this factor (except for recipient)
+                    for varId in self.factorToVar[factorId]:
+
+                        if recipientVarId == varId:
+                            continue
+
+                        # accumulate messages to sent this factor
+                        product=product.multiply(self.messagesVarToFactor[(varId, factorId)])
+
+                    # pivot on variable
+                    marginalized_product=product.marginalize_all_but([recipientVarId])
+
+                    # send normalized message
+                    self.messagesFactorToVar[(factorId, recipientVarId)]=marginalized_product.normalize()
+
+            # code.interact(local=locals())
+
+            # for each variable, send a message to adjacent factors
+            for varId in range(numVar):
+
+                # for each factor adjacent to this variable
+                for recipientFactorId in self.varToFactor[varId]:
+
+                    # multiply all inbound messages
+                    product=None
+
+                    # for each factor adjacent to this variable (except for recipient)
+                    for factorId in self.varToFactor[varId]:
+
+                        if factorId == recipientFactorId:
+                            continue
+
+                        # receive message from factor sent to this variable
+                        inbound_message=self.messagesFactorToVar[(factorId, varId)]
+
+                        # accumulate messages to this variable
+                        product=inbound_message if product == None else product.multiply(inbound_message)
+
+                    # send normalized message
+                    self.messagesVarToFactor[(varId, recipientFactorId)]=product.normalize()
+                    
+                # codeword.append(self.estimateMarginalProbability(varId)[0])
+            
+            # print(codeword)
+
+                
+
+    def estimateMarginalProbability(self, varId):
         '''
         Estimate the marginal probabilities of a single variable after running
         loopy belief propogation. This method assumes runParallelLoopyBP has
@@ -121,11 +193,23 @@ class FactorGraph:
 
         THIS FUNCTION WILL BE CALLED BY THE AUTOGRADER.
         '''
-        #######################################################################
-        # To do: your code here
 
-        #######################################################################
-        pass
+        # multiply all inbound messages
+        product=None
+
+        # for each factor adjacent to this variable
+        for factorId in self.varToFactor[varId]:
+
+            # receive message from factor sent to this variable
+            message=self.messagesFactorToVar[(factorId, varId)]
+
+            # accumulate messages to this variable
+            product=message if product == None else product.multiply(message)
+
+        # code.interact(local=locals())
+        product.normalize()
+            
+        return product.val
 
     def getMarginalMAP(self):
         '''
@@ -139,6 +223,7 @@ class FactorGraph:
         >>> factor_graph.getMarginalMAP()
         >>> [0, 1, 0, 0]
         '''
+        assert False, "> getMarginalMAP"
         output = np.zeros(len(self.var))
         #######################################################################
         # To do: your code here

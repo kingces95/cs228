@@ -9,10 +9,11 @@
 ###############################################################################
 
 ## Utility code for PA3
+from re import X
 import numpy as np
 import scipy.io as sio
 import matplotlib.pyplot as plt
-import itertools
+import itertools as it
 from factor_graph import *
 from factors import *
 import code
@@ -54,11 +55,14 @@ def applyChannelNoise(y, epsilon):
 
     THIS FUNCTION WILL BE CALLED BY THE AUTOGRADER.
     '''
-    ###############################################################################
-    # TODO: Your code here!
 
-    raise NotImplementedError()
-    ###############################################################################
+    yTilde=np.array(y)
+    i=np.random.uniform()
+    for i in range(yTilde.size):
+        if np.random.uniform() <= epsilon:
+            yTilde[i] = 1 if yTilde[i] == 0 else 0
+    # code.interact(local=locals())
+
     assert y.shape == yTilde.shape
     return yTilde
 
@@ -91,19 +95,84 @@ def constructFactorGraph(yTilde, H, epsilon):
     M = H.shape[1]
     G = FactorGraph(numVar=M, numFactor=N+M)
     G.var = list(range(M))
+    # G.domain = [[0,1] for _ in range(numVar)]
+    # G.messagesVarToFactor = {}
+    # G.messagesFactorToVar = {}
 
-    # code.interact(local=locals())
+    numVar=M
+    numUnaryFactor=M
+    numParityFactor=N
+    numFactor=numUnaryFactor + numParityFactor
 
-    ##############################################################
-    # To do: your code starts here
-    # Add unary factors
+    assert yTilde.size == numVar
 
-    # Add parity factors
-    # You may find the function itertools.product useful
-    # (https://docs.python.org/3/library/itertools.html#itertools.product)
+    G.factors = [[] for _ in range(numFactor)]
 
-    raise NotImplementedError()
-    ##############################################################
+    # add unary factors + edges
+    for m in range(numVar):
+        bitId=m
+        unaryFactorId=m
+
+        # var (bit) -> factor (unary)
+        G.varToFactor[bitId].append(unaryFactorId)
+
+        # factor (unary) -> var (bin)
+        G.factorToVar[unaryFactorId].append(bitId)
+
+        # unary factor
+        bit=yTilde[m]
+        val=np.array(( epsilon, epsilon ))
+        val[bit]=1-epsilon
+
+        G.factors[unaryFactorId] = Factor(
+            scope=[ bitId ], card=[ 2 ], val=val, name="%d (unary), bit=%d" % (unaryFactorId, bit))
+
+    # add parity factors + edges
+    for m in range(numVar):
+        bitId=m
+
+        for n in range(numParityFactor):
+            parityFactorId=n + numUnaryFactor
+
+            if H[n][m] == 0:
+                continue
+
+            # var (bit) -> factor (parity)
+            G.varToFactor[bitId].append(parityFactorId)
+
+            # factor (parity) -> var (bit)
+            G.factorToVar[parityFactorId].append(bitId)
+
+    for n in range(numParityFactor):
+        parityFactorId=n + numUnaryFactor
+
+        scope=np.where(H[n] == 1)[0]
+        dimensions=scope.size
+        card=[2] * dimensions        
+        
+        binary=(0., 1.)
+
+        # list of binary of length dimensions; one binary pair per parity factor edge
+        vals=list(it.repeat(binary, dimensions))
+
+        # permutations of bit value for parity factor
+        cartesian_product=np.array(list(it.product(*vals)))
+
+        # count of set bits per permutation
+        set_bits_per_cartesian_product=np.array(cartesian_product.sum(1))
+
+        # even number of set bits => 1, otherwise 0
+        parity_bits= np.array((set_bits_per_cartesian_product + 1) % 2)
+        assert parity_bits[0] == 1
+        
+        val=parity_bits.reshape(card)
+        assert card == list(val.shape)
+
+        # parity factor
+        G.factors[parityFactorId] = Factor(
+            scope=scope, card=card, val=val, name="%d (parity)" % parityFactorId)
+
+
     return G
 
 def do_part_a():
@@ -121,9 +190,18 @@ def do_part_a():
     # ytest3. Report their weights respectively. Keep the shape of each ytest as (6,) instead of (6,1)
 
     ##############################################################
-    print(G.evaluateWeight(ytest1),
-          G.evaluateWeight(ytest2),
-          G.evaluateWeight(ytest3))
+    ytest1=np.array([1, 0, 1, 0, 1, 0])
+    ytest2=np.array([1, 1, 1, 1, 1, 1])
+    ytest3=np.array([0, 0, 0, 0, 0, 0])
+    assert ytest1.shape == (6,)
+    assert ytest2.shape == (6,)
+    assert ytest3.shape == (6,)
+    # code.interact(local=locals())
+
+    print(G.evaluateWeight([1, 0, 1, 0, 1, 0]))
+    print(G.evaluateWeight([1, 1, 1, 1, 1, 1]))
+    print(G.evaluateWeight([0, 0, 0, 0, 0, 0]))
+    print(G.evaluateWeight([1, 0, 1, 1, 1, 1]))
 
 def sanity_check_noise():
     '''
@@ -162,30 +240,51 @@ def do_part_b(fixed=False, npy_file=None):
     if not fixed:
         yTilde = applyChannelNoise(y, epsilon)
         print("Applying random noise at eps={}".format(epsilon))
+        # print(y.T)
+        # print(yTilde.T)
+
     else:
         assert npy_file is not None
         yTilde = np.load(npy_file)
         print("Loading yTilde from {}".format(npy_file))
 
-    ##########################################################################################
-    # To do: your code starts here
+    graph = constructFactorGraph(yTilde, H, epsilon)
+    graph.runParallelLoopyBP(50)
+    # code.interact(local=locals())
 
-
-    ##############################################################
-    #You dont need to return anything for this function
-    pass
+    # print(G.estimateMarginalProbability(1))
     
-def do_part_cd(numTrials, error, iterations=50):
+def do_part_cd(numTrials, epsilon, iterations=50):
     '''
     param - numTrials: how many trials we repreat the experiments
-    param - error: the transmission error probability
+    param - epsilon: the transmission epsilon probability
     param - iterations: number of Loopy BP iterations we run for each trial
     '''
     G, H = loadLDPC('ldpc36-128.mat')
     ##############################################################
     # To do: your code starts here
 
+    print((H.shape))
+    epsilon = 0.05
+    N = G.shape[1]
+    x = np.zeros((N, 1), dtype='int32')
+    y = encodeMessage(x, G)
 
+    for i in range(numTrials):
+        yTilde = applyChannelNoise(y, epsilon)
+        print("Applying random noise at eps={}".format(epsilon))
+
+        graph = constructFactorGraph(yTilde, H, epsilon)
+        graph.runParallelLoopyBP(iterations)
+
+        x=[]
+        for i in range(N):
+            x.append(0 if graph.estimateMarginalProbability(i)[0] > .5 else 1)
+        x=np.array(x)
+
+        print("--", x[x==1].shape[0])
+
+        code.interact(local=locals())
 
     ##############################################################
     #You dont need to return anything for this function
@@ -211,18 +310,20 @@ if __name__ == '__main__':
     print('Doing part (a): Should see 0.0, 0.0, >0.0')
     do_part_a()
     print("Doing sanity check applyChannelNoise")
-    # sanity_check_noise()
+    sanity_check_noise()
     print('Doing part (b) fixed')
     # do_part_b(fixed=True, npy_file='part_b_test_1.npy')    # This should perfectly recover original code
     # do_part_b(fixed=True, npy_file='part_b_test_2.npy')    # This may not recover at perfect probability
     print('Doing part (b) random')
     # do_part_b(fixed=False)
     print('Doing part (c)')
-    #do_part_cd(10, 0.06)
+    iterations=20
+    do_part_cd(10, 0.06, iterations)
     print('Doing part (d)')
-    # do_part_cd(10, 0.08)
-    # do_part_cd(10, 0.10)
+    do_part_cd(10, 0.08, iterations)
+    do_part_cd(10, 0.10, iterations)
     print('Doing part (e)')
-    # do_part_ef(0.06)
+    do_part_ef(0.06)
     print('Doing part (f)')
-    # do_part_ef(0.10)
+    do_part_ef(0.10)
+    # code.interact(local=locals())

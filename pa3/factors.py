@@ -8,7 +8,6 @@
 
 import numpy as np
 
-
 def assignment_to_indices(A, card):
     """
     :param - A: an assignment
@@ -45,7 +44,6 @@ def indices_to_assignment(I, card):
             np.tile(np.cumprod(np.concatenate(([1.0], C[:0:-1]))), (len(I), 1))), \
             np.tile(C[::-1], (len(I), 1)))
     return A[:,::-1]
-
 
 def intersection_indices(a, b):
     """
@@ -152,7 +150,6 @@ class Factor:
         g.val = np.reshape(operator(self.val.flat[i1], f.val.flat[i2]), g.card)
         return g
 
-
     def sum(self, f):
         """
         Returns a factor that is the result of adding this factor with factor f.
@@ -161,7 +158,6 @@ class Factor:
         :rtype: Factor
         """
         return self.compose_factors(f, operator=lambda x, y: x+y, opname = "+")
-
 
     def multiply(self, f):
         """
@@ -217,7 +213,6 @@ class Factor:
         for i in range(np.prod(self.card)):
             g.val.flat[indxG[i]] += self.val.flat[i]
         return g
-
 
     def observe(self, var, val):
         """
