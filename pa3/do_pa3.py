@@ -76,6 +76,16 @@ def encodeMessage(x, G):
     '''
     return np.mod(np.dot(G, x), 2)
 
+def checkParity(y, H):
+    '''
+    :param - x orginal message
+    :param[in] G generator matrix
+    :return codeword x=Hy mod 2
+
+    THIS FUNCTION WILL BE CALLED BY THE AUTOGRADER.
+    '''
+    return np.mod(np.dot(H, y), 2)
+
 def constructFactorGraph(yTilde, H, epsilon):
     '''
     Args
@@ -237,11 +247,14 @@ def do_part_b(fixed=False, npy_file=None):
     N = G.shape[1]
     x = np.zeros((N, 1), dtype='int32')
     y = encodeMessage(x, G)
+
+    parity=checkParity(y, H)
+    # print(parity)
+
     if not fixed:
         yTilde = applyChannelNoise(y, epsilon)
         print("Applying random noise at eps={}".format(epsilon))
-        # print(y.T)
-        # print(yTilde.T)
+        print("{} out of {} bits flipped".format(sum([yTilde[i]!=y[i][0] for i in range(len(y))]),len(y)))
 
     else:
         assert npy_file is not None
@@ -249,10 +262,14 @@ def do_part_b(fixed=False, npy_file=None):
         print("Loading yTilde from {}".format(npy_file))
 
     graph = constructFactorGraph(yTilde, H, epsilon)
-    graph.runParallelLoopyBP(50)
-    # code.interact(local=locals())
+    graph.runParallelLoopyBP(20)
+    yRecovered=graph.getMessage()
 
-    # print(G.estimateMarginalProbability(1))
+    print("miss {} out of {} bits".format(sum([yRecovered[i]!=y[i][0] for i in range(len(y))]),len(y)))
+
+
+    parity=checkParity(yRecovered.reshape(y.shape), H)
+    print(parity.T)
     
 def do_part_cd(numTrials, epsilon, iterations=50):
     '''
@@ -265,41 +282,67 @@ def do_part_cd(numTrials, epsilon, iterations=50):
     # To do: your code starts here
 
     print((H.shape))
-    epsilon = 0.05
     N = G.shape[1]
     x = np.zeros((N, 1), dtype='int32')
     y = encodeMessage(x, G)
 
     for i in range(numTrials):
+        print("--", i)
         yTilde = applyChannelNoise(y, epsilon)
         print("Applying random noise at eps={}".format(epsilon))
+        print("Flipped bits = {}".format(np.sum([yTilde==1])))
+        # print(yTilde.T)
 
         graph = constructFactorGraph(yTilde, H, epsilon)
         graph.runParallelLoopyBP(iterations)
 
-        x=[]
-        for i in range(N):
-            x.append(0 if graph.estimateMarginalProbability(i)[0] > .5 else 1)
-        x=np.array(x)
-
-        print("--", x[x==1].shape[0])
-
-        code.interact(local=locals())
+        # code.interact(local=locals())
 
     ##############################################################
     #You dont need to return anything for this function
     pass
 
-def do_part_ef(error):
+def do_part_ef(epsilon):
     '''
     param - error: the transmission error probability
     '''
     G, H = loadLDPC('ldpc36-1600.mat')
     img = loadImage('images.mat', 'cs242')
+    # x = np.tile(img, (2,2))
+
+    N = G.shape[1]
+    x=np.array(img).reshape(N,1)
+    y = encodeMessage(x, G)
+    yTilde=applyChannelNoise(y, epsilon)
+
+    graph=constructFactorGraph(yTilde, H, epsilon)
+    # code.interact(local=locals())
+
     ##############################################################
     # To do: your code starts here
     # You should flattern img first and treat it as the message x in the previous parts.
 
+    # code.interact(local=locals())
+    snapshot=np.array((0,1,2,3,5,10,20,30))
+    plt.figure()
+    graph.runParallelLoopyBP(0)
+
+    plot=0
+    for i in range(31):
+        print(i)
+        if i in snapshot:
+            yRecovered=yTilde if i==0 else graph.getMessage()
+            plt.subplot(2, 4, plot + 1)
+            plot=plot+1
+            plt.imshow(
+                yRecovered[:1600].reshape(40,40)
+            )
+            plt.title("Sample: " + str(i))
+        graph.runParallelLoopyBPi(1)
+    plt.tight_layout()
+    plt.savefig("a4", bbox_inches="tight")
+    plt.show()
+    plt.close()
 
 
     ################################################################
@@ -308,22 +351,24 @@ def do_part_ef(error):
 
 if __name__ == '__main__':
     print('Doing part (a): Should see 0.0, 0.0, >0.0')
-    do_part_a()
+    # do_part_a()
+    # do_part_aa()
     print("Doing sanity check applyChannelNoise")
-    sanity_check_noise()
+    # sanity_check_noise()
     print('Doing part (b) fixed')
     # do_part_b(fixed=True, npy_file='part_b_test_1.npy')    # This should perfectly recover original code
     # do_part_b(fixed=True, npy_file='part_b_test_2.npy')    # This may not recover at perfect probability
     print('Doing part (b) random')
     # do_part_b(fixed=False)
     print('Doing part (c)')
-    iterations=20
-    do_part_cd(10, 0.06, iterations)
+    iterations=50
+    trials=10
+    # do_part_cd(trials, 0.06, iterations)
     print('Doing part (d)')
-    do_part_cd(10, 0.08, iterations)
-    do_part_cd(10, 0.10, iterations)
+    # do_part_cd(trials, 0.08, iterations)
+    # do_part_cd(trials, 0.10, iterations)
     print('Doing part (e)')
-    do_part_ef(0.06)
+    # do_part_ef(0.06)
     print('Doing part (f)')
     do_part_ef(0.10)
     # code.interact(local=locals())

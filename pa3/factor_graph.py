@@ -112,11 +112,17 @@ class FactorGraph:
                     scope=[varId], card=[2], val=np.array([0.5, 0.5]))
 
         # code.interact(local=locals())
+        self.runParallelLoopyBPi(iterations)
+
+    def runParallelLoopyBPi(self, iterations):
+        numVar=self.var.__len__()
+        numFactors=self.factors.__len__()
 
         for i in range(iterations):
 
-            # print(i)
-            # codeword=[]
+            #if i % 5 == 0:
+            #print(i)
+            codeword=[]
 
             # for each factor, send a message to adjacent variables
             for factorId in range(numFactors):
@@ -135,10 +141,10 @@ class FactorGraph:
                             continue
 
                         # accumulate messages to sent this factor
-                        product=product.multiply(self.messagesVarToFactor[(varId, factorId)])
+                        product=product.multiply(self.messagesVarToFactor[(varId, factorId)]).normalize()
 
                     # pivot on variable
-                    marginalized_product=product.marginalize_all_but([recipientVarId])
+                    marginalized_product=product.marginalize_all_but([recipientVarId]).normalize()
 
                     # send normalized message
                     self.messagesFactorToVar[(factorId, recipientVarId)]=marginalized_product.normalize()
@@ -161,16 +167,20 @@ class FactorGraph:
                             continue
 
                         # receive message from factor sent to this variable
-                        inbound_message=self.messagesFactorToVar[(factorId, varId)]
+                        inbound_message=self.messagesFactorToVar[(factorId, varId)].normalize()
 
                         # accumulate messages to this variable
-                        product=inbound_message if product == None else product.multiply(inbound_message)
+                        product=inbound_message if product == None else product.multiply(inbound_message).normalize()
 
                     # send normalized message
                     self.messagesVarToFactor[(varId, recipientFactorId)]=product.normalize()
                     
                 # codeword.append(self.estimateMarginalProbability(varId)[0])
             
+            # yRecovered=self.getMessage()
+            # print(np.sum([yRecovered==1]))
+            # code.interact(local=locals())
+
             # print(codeword)
 
                 
@@ -204,7 +214,7 @@ class FactorGraph:
             message=self.messagesFactorToVar[(factorId, varId)]
 
             # accumulate messages to this variable
-            product=message if product == None else product.multiply(message)
+            product=message if product == None else product.multiply(message).normalize()
 
         # code.interact(local=locals())
         product.normalize()
@@ -230,3 +240,13 @@ class FactorGraph:
 
         #######################################################################
         return output
+
+    def getMessage(self):
+        numVar=self.var.__len__()
+
+        x=[]
+        for i in range(numVar):
+            x.append(0 if self.estimateMarginalProbability(i)[0] > .5 else 1)
+        x=np.array(x)
+        return x
+
