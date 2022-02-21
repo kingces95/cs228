@@ -157,14 +157,13 @@ def get_posterior_by_sampling(
     '''
     print ('Reading file:', filename)
     X = read_txt_file(filename)
-    ph,pw = X.shape
+    ph,pw = X.shape # padded hight/width
     
-    # hight/width w/o padding
-    h = ph - 2
-    w = pw - 2
+    S = np.zeros((ph,pw))
+    frequencyZ = { }
 
-    S = np.zeros((h,w))
-    code.interact(local=locals())
+    if initialization == "pass":
+        return X, None, None
 
     if initialization == "same":
         Y = np.array(X)
@@ -182,13 +181,12 @@ def get_posterior_by_sampling(
     Y[:,0]=0    # zero first column
     Y[:,-1]=0   # zero last column
 
-    log = open(logfile, 'w')
-    # e = compute_energy(Y, X)
-    # log.write("0\t%f\B" % energy)
+    if logfile != None:
+        log = open(logfile, 'w')
 
     for t in range(max_burns + max_samples):
         if t % 10 == 0:
-            print("%s %d (%d, %d)"  % (logfile, t, max_burns, max_samples))
+            print("%s -> %s, %d"  % (filename, logfile, t))
 
         # code.interact(local=locals())
 
@@ -198,21 +196,27 @@ def get_posterior_by_sampling(
                 j = pj+1 # adjust for padding
                 Y[i,j]=sample(i, j, Y, X, dumb_sample)
 
-        e = compute_energy(Y, X)
-        log.write("%d\t%f\t%s\n" % (t, e, "B" if t < max_burns else "S"))      
+        if logfile != None:
+            e = compute_energy(Y, X)
+            log.write("%d\t%f\t%s\n" % (t, e, "B" if t < max_burns else "S"))
+
+        if t < max_burns:
+            continue
+
+        S[Y > 0] += 1
+
+        zcount=np.sum(Y[125+1:143+1, 162-1:174-1] > 0) # remove non-z + padding
+        frequencyZ[zcount] = frequencyZ.get(zcount, 0) + 1
 
     # code.interact(local=locals())
-    ########
-    log.close()
 
-    thisdict = {
-    "brand": "Ford",
-    "model": "Mustang",
-    "year": 1964
-    }
-    return Y, None, None
-    #return posterior, Y, frequencyZ
+    if logfile != None:
+        log.close()
 
+    posterior = np.zeros(S.shape, np.float64)
+    posterior = S / max_samples
+
+    return posterior, Y, frequencyZ
 
 def denoise_image(
     filename, 
@@ -333,7 +337,7 @@ def get_error(img_a, img_b):
 
     Returns: float
     '''
-    assert img_a.shape == img_b.shape
+    assert img_a.shape == img_b.shape, "%s vs %s" % (img_a.shape, img_b.shape)
     N = img_a.shape[0] * img_a.shape[1]  # number of pixels in an image
     return np.sum(np.abs(img_a - img_b) > 1e-5) / float(N)
 
@@ -347,12 +351,11 @@ def perform_part_c():
     Run denoise_image() with different initializations and plot out the energy
     functions.
     '''
-    ########
-    # TODO: Your code here!
+
     MAX_BURNS=100
     MAX_SAMPLES=1000
-    # image_txt='./data/small.txt'
-    image_txt='./data/noisy_20.txt'
+    image_txt='./data/small.txt'
+    # image_txt='./data/noisy_20.txt'
 
     get_posterior_by_sampling(image_txt, MAX_BURNS, MAX_SAMPLES, initialization='rand', logfile='logs/log_rand')
     plot_energy('log_rand')
@@ -363,8 +366,6 @@ def perform_part_c():
     get_posterior_by_sampling(image_txt, MAX_BURNS, MAX_SAMPLES, initialization='same', logfile='logs/log_same')
     plot_energy('log_same')
 
-    ########
-
 def perform_part_d():
     '''
     Run denoise_image() with different noise levels of 10% and 20%, and report
@@ -372,31 +373,76 @@ def perform_part_d():
     before computing the errors. Also, don't forget that denoise_image() strips
     the zero padding and scales them into [0, 1].
     '''
-    ########
-    # TODO: Your code here!
+    MAX_BURNS=100
+    MAX_SAMPLES=1000
+    #MAX_SAMPLES=100
 
-    raise NotImplementedError()
-    ########
+    # small, _ = denoise_image('./data/small.txt', 0, 0, initialization='pass')
+    # convert_to_png(small, 'small')
+    
+    # denoised_small, _ = denoise_image('./data/small.txt', MAX_BURNS, MAX_SAMPLES, initialization='same')
+    # convert_to_png(denoised_small, 'denoised_small')
+    
+    # print("small vs denoised_small = %f" % get_error(small, denoised_small))
+    # code.interact(local=locals())
+    # return
 
-    #### save denoised images and original image as PNG
+    orig, _ = denoise_image('./data/orig.txt', 0, 0, initialization='pass')
+    print("orig vs orig = %f" % get_error(orig, orig))
+    convert_to_png(orig, 'orig')
+
+    denoised_10, _ = denoise_image('./data/noisy_10.txt', MAX_BURNS, MAX_SAMPLES, initialization='same')
+    print("orig vs denoised_10 = %f" % get_error(orig, denoised_10))
     convert_to_png(denoised_10, 'denoised_10')
+
+    denoised_20, _ = denoise_image('./data/noisy_20.txt', MAX_BURNS, MAX_SAMPLES, initialization='same')
+    print("orig vs denoised_20 = %f" % get_error(orig, denoised_20))
     convert_to_png(denoised_20, 'denoised_20')
-    convert_to_png(orig_img, 'orig_img')
+
+    # code.interact(local=locals())
+    pass
 
 def perform_part_e():
     '''
     Run denoise_image() using dumb sampling with different noise levels of 10%
     and 20%.
     '''
-    ########
-    # TODO: Your code here!
+    MAX_BURNS=100
+    MAX_SAMPLES=0
+    #MAX_SAMPLES=100
 
-    raise NotImplementedError()
-    ########
+    # small, _ = denoise_image('./data/small.txt', 0, 0, initialization='pass')
+    # convert_to_png(small, 'small')
+    
+    # dumb_denoised_small, _ = denoise_image('./data/small.txt', MAX_BURNS, MAX_SAMPLES, initialization='same', dumb_sample=True)
+    # convert_to_png(dumb_denoised_small, 'dumb_denoised_small')
+    
+    # print("small vs dumb_denoised_small = %f" % get_error(small, dumb_denoised_small))
+    # code.interact(local=locals())
+    # return
 
-    #### save denoised images as PNG
-    convert_to_png(denoised_dumb_10, 'denoised_dumb_10')
-    convert_to_png(denoised_dumb_20, 'denoised_dumb_20')
+    orig, _ = denoise_image('./data/orig.txt', 0, 0, initialization='pass')
+    print("orig vs orig = %f" % get_error(orig, orig))
+    convert_to_png(orig, 'orig')
+
+    # dumb_denoised_10, _ = denoise_image('./data/noisy_10.txt', MAX_BURNS, MAX_SAMPLES, initialization='same', dumb_sample=True)
+    # print("orig vs dumb_denoised_10 = %f" % get_error(orig, dumb_denoised_10))
+    # convert_to_png(dumb_denoised_10, 'dumb_denoised_10')
+
+    # dumb_denoised_20, _ = denoise_image('./data/noisy_20.txt', MAX_BURNS, MAX_SAMPLES, initialization='same', dumb_sample=True)
+    # print("orig vs dumb_denoised_20 = %f" % get_error(orig, dumb_denoised_20))
+    # convert_to_png(dumb_denoised_20, 'dumb_denoised_20')
+
+    ran_dumb_denoised_10, _ = denoise_image('./data/noisy_10.txt', MAX_BURNS, MAX_SAMPLES, initialization='rand', dumb_sample=True)
+    print("orig vs ran_dumb_denoised_10 = %f" % get_error(orig, ran_dumb_denoised_10))
+    convert_to_png(ran_dumb_denoised_10, 'ran_dumb_denoised_10')
+
+    ran_dumb_denoised_20, _ = denoise_image('./data/noisy_20.txt', MAX_BURNS, MAX_SAMPLES, initialization='rand', dumb_sample=True)
+    print("orig vs ran_dumb_denoised_20 = %f" % get_error(orig, ran_dumb_denoised_20))
+    convert_to_png(ran_dumb_denoised_20, 'ran_dumb_denoised_20')
+
+    # code.interact(local=locals())
+    pass
 
 def perform_part_f():
     '''
@@ -404,16 +450,21 @@ def perform_part_f():
     '''
     MAX_BURNS = 100
     MAX_SAMPLES = 1000
-
-    _, f = denoise_image('./data/noisy_10.txt', MAX_BURNS, MAX_SAMPLES, initialization='same')
     width = 1.0
+
+    # _, f10 = denoise_image('./data/noisy_10.txt', MAX_BURNS, MAX_SAMPLES, initialization='same')
+    # plt.clf()
+    # plt.bar(list(f10.keys()), list(f10.values()), width, color='b')
+    # plt.savefig('./z10')
+    # plt.show()
+
+    _, f20 = denoise_image('./data/noisy_20.txt', MAX_BURNS, MAX_SAMPLES, initialization='same')
     plt.clf()
-    plt.bar(list(f.keys()), list(f.values()), width, color='b')
-    plt.show()
-    _, f = denoise_image('./data/noisy_20.txt', MAX_BURNS, MAX_SAMPLES, initialization='same')
-    plt.clf()
-    plt.bar(list(f.keys()), list(f.values()), width, color='b')
-    plt.show()
+    plt.bar(list(f20.keys()), list(f20.values()), width, color='b')
+    plt.savefig('./z20')
+    # plt.show()
+
+    # code.interact(local=locals())
 
 if __name__ == '__main__':
     # sampling_prob([1,1,-1,1,-1])
@@ -421,7 +472,7 @@ if __name__ == '__main__':
     # Y = X
     # compute_energy(X, Y)
 
-    perform_part_c()
+    # perform_part_c()
     # perform_part_d()
     # perform_part_e()
-    # perform_part_f()
+    perform_part_f()
