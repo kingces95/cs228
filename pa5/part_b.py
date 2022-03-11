@@ -130,7 +130,6 @@ def compute_yz_marginal_ex(X, params):
 
     return log_y_prob, log_z_prob, log_z_eq_y_prob
 
-
 def compute_yz_joint(X, params):
     """ Compute the joint probability of log p(y_i, z_{ij}|X, params)
     Input:
@@ -150,7 +149,39 @@ def compute_yz_joint(X, params):
     N = X.shape[0] # 50; # of precincts; 0 <= i < N
     M = X.shape[1] # 20; # of people per precinct; 0 <= j < M
 
-    log_yz_propotional_prob = np.zeros((N, M, 2, 2))
+    log_yz_prob = compute_log_yz(X, params)
+
+    # normalize
+    cond_prob = log_yz_prob.reshape(M * N,4)
+    cond_prob_sum = logsumexp(cond_prob,axis=1)
+    cond_prob_norm = cond_prob - cond_prob_sum[:, np.newaxis]
+    log_yz_normalized_prob=cond_prob_norm.reshape(log_yz_prob.shape)
+
+    np.savetxt("log_yz.csv", log_yz_normalized_prob.reshape(M * N, 4), delimiter="\t")
+    # code.interact(local=locals())
+
+    return log_yz_normalized_prob
+
+def compute_log_yz(X, params):
+    """ Compute the joint probability of log p(y_i, z_{ij}|X, params)
+    Input:
+        X: As usual
+        params: A dictionary containing the old parameters, refer to compute compute_yz_marginal
+    Output:
+        log_yz_prob: A array of shape (X.shape[0], X.shape[1], 2, 2);
+            u in {0,1}, v in {0,1}
+            yz_prob[i, j, u, v] should store the value of log p(y_i=u, z_{ij}=v|X, params)
+            Don't forget to normalize your (conditional) probability
+
+    Note: To avoid numerical overflow, you should use log_sum_exp trick (Helper functions in utils.py)
+
+    This function will be autograded.
+    """
+
+    N = X.shape[0] # 50; # of precincts; 0 <= i < N
+    M = X.shape[1] # 20; # of people per precinct; 0 <= j < M
+
+    log_yz_prob = np.zeros((N, M, 2, 2))
 
     mu0 = params['mu0']
     cov0 = params['sigma0']
@@ -210,21 +241,11 @@ def compute_yz_joint(X, params):
                     #     (i,j,yi,zij, y_prob, z_given_y_prob, x_given_z_prob, \
                     #         y_prob * z_given_y_prob * x_given_z_prob, np.exp(ll)))
 
-                    log_yz_propotional_prob[i,j,yi,zij] = ll
+                    log_yz_prob[i,j,yi,zij] = ll
 
             # code.interact(local=locals())
 
-    # normalize
-    cond_prob = log_yz_propotional_prob.reshape(1000,4)
-    cond_prob_sum = logsumexp(cond_prob,axis=1)
-    cond_prob_norm = cond_prob - cond_prob_sum[:, np.newaxis]
-    yz_prob=cond_prob_norm.reshape(log_yz_propotional_prob.shape)
-
-    np.savetxt("log_yz.csv", yz_prob.reshape(1000,4), delimiter="\t")
-    # code.interact(local=locals())
-
-    return yz_prob
-
+    return log_yz_prob
 
 def em_step(X, params):
     """ Make one EM update according to question B(iii)
@@ -246,10 +267,10 @@ def em_step(X, params):
 
     log_z_eq_y_prob = log_z_eq_y_prob.flatten()
     lmbda = np.exp(logsumexp(log_z_eq_y_prob)) / len(log_z_eq_y_prob)
-    # code.interact(local=locals())
 
     z_prob = np.exp(log_z_prob)
     z = z_prob.reshape(1000,1)
+    z[z > 1] = 1 # hack; unknown
     z_not = 1 - z
 
     z_sum = np.sum(z)
@@ -261,9 +282,8 @@ def em_step(X, params):
 
     sigma0 = 0
     try:
+        assert np.any(z_not.reshape(1000,) < 0) == False, "Negative aweight!"
         sigma0 = np.cov(x, rowvar=False, bias=True, aweights=z_not.reshape(1000,))
-        # sigma0 = np.array([[0.39440695, 0.35034244],
-        #                     [0.35034244, 0.84211956]])
     except Exception as e:
         print("Sigma0 calculation threw an exception:")
         print(e)
@@ -297,7 +317,6 @@ def em_step(X, params):
     print(result)
     return result
 
-
 def compute_log_likelihood(X, params):
     """ Compute the log likelihood log p(X) under current parameters.
     To compute this you can first call the function compute_yz_joint
@@ -310,54 +329,12 @@ def compute_log_likelihood(X, params):
     This function will be autograded
     """
 
-    _, log_z_prob = compute_yz_marginal(X, params)
+    log_yz_prob = compute_log_yz(X, params)
+    ll = logsumexp(log_yz_prob.flatten())
+    print("ll=%f" % ll)
 
-    N = X.shape[0] # 50; # of precincts; 0 <= i < N
-    M = X.shape[1] # 20; # of people per precinct; 0 <= j < M
+    return ll
 
-    mu0 = params['mu0']
-    cov0 = params['sigma0']
-    mvn0 = multivariate_normal(mean=mu0, cov=cov0)
-
-    mu1 = params['mu1']
-    cov1 = params['sigma1']
-    mvn1 = multivariate_normal(mean=mu1, cov=cov1)
-
-    log_x_prob = 0.0
-
-    for i in range(N):
-        for j in range(M):
-            xij = X[i,j]
-            mvn0_xij = mvn0.pdf(xij)
-            mvn1_xij = mvn1.pdf(xij)
-
-            sum_log_xij_zij_prob = np.zeros((2))
-
-            for zij in range(2):
-                xij_given_zij_prob = mvn1_xij if zij == 1 else mvn0_xij
-
-                z1ij_prob = np.exp(log_z_prob[i, j])
-                zij_prob = z1ij_prob if zij == 1 else 1 - z1ij_prob
-                
-                # print("(i,j,zij)=(%d,%d,%d) zij_prob=%f" \
-                #     % (i,j,zij,zij_prob))
-
-                sum_log_xij_zij_prob[zij] = \
-                    float('-inf') if zij_prob == 0 else \
-                        np.log(xij_given_zij_prob) + np.log(zij_prob)
-
-            log_x_prob += logsumexp(sum_log_xij_zij_prob)
-    
-    # code.interact(local=locals())
-
-    print("ll=%f" % log_x_prob)
-    return log_x_prob
-                
-                # print("(i,j,zij)=(%d,%d,%d) z1ij_prob=%f, zij_prob=%f" \
-                #     % (i,j,zij,z1ij_prob,zij_prob))
-
-                    # np.log(xij_given_zij_prob) + \
-                    #     float('-inf') if zij_prob == 0 else np.log(zij_prob)
 
 if __name__ == '__main__':
     from matplotlib import pyplot as plt
@@ -392,7 +369,7 @@ if __name__ == '__main__':
     for params in param_init:
         loglikelihoods = []
         for i in range(10):
-            # loglikelihoods.append(compute_log_likelihood(X_unlabeled, params))
+            loglikelihoods.append(compute_log_likelihood(X_unlabeled, params))
             params = em_step(X_unlabeled, params)
             sys.exit()
 
